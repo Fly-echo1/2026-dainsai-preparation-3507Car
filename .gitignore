@@ -1,0 +1,9 @@
+# CCS Build Output
+Debug/
+
+# IDE Settings
+.settings/
+
+# OS
+Thumbs.db
+.DS_Store
