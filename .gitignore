@@ -4,9 +4,6 @@ Debug/
 # IDE Settings
 .settings/
 
-# AI
-.claude/
-
 # OS
 Thumbs.db
 .DS_Store
