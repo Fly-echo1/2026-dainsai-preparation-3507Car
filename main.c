@@ -78,7 +78,7 @@ int main(void) {
   OLED_ShowString(17 * 6, 4, (uint8_t *)"Gyro", 8);
   
   //模式选择
-  task_flag = 1;
+  task_flag = 2;
   //模式选择
 
   while (1) {
