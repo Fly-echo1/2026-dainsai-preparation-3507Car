@@ -18,13 +18,14 @@
 
 /* ===== 默认参数 ===== */
 #define ROTATE_DEFAULT_SPEED 300      /* 原地旋转 PWM 速度 (0~999)     */
-#define ROTATE_DEFAULT_KP 7.0f       /* 角度 PID P 系数              */
-#define ROTATE_DEFAULT_KI 2.0f        /* 角度 PID I 系数              */
-#define ROTATE_DEFAULT_KD 3.0f        /* 角度 PID D 系数              */
-#define ROTATE_DEFAULT_TOLERANCE 1.5f /* 到位容忍度 (°)               */
+#define ROTATE_DEFAULT_KP 1.0f       /* 角度 PID P 系数              */
+#define ROTATE_DEFAULT_KI 0.4f       /* 角度 PID I 系数              */
+#define ROTATE_DEFAULT_KD 10.0f        /* 角度 PID D 系数              */
+#define ROTATE_DEFAULT_TOLERANCE 0.3f /* 到位容忍度 (°)               */
 #define ROTATE_DEFAULT_TIMEOUT 15000  /* 超时时间 (ms)                 */
 #define ROTATE_OK_COUNT 5             /* 连续容忍次数 (ms=次数×10)      */
-#define ROTATE_I_LIMIT 200            /* 积分限幅 (±)                   */
+#define ROTATE_I_LIMIT 150            /* 积分限幅 (±)               */
+#define ROTATE_OUT_LIMIT 300          /* 输出限幅 (±) 匹配 SPEED    */
 
 /* ===== 显示回调类型 ===== */
 typedef void (*Rotate_DisplayFn)(float yaw, float target, int16_t left,

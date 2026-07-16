@@ -39,6 +39,7 @@
 #include "Task/task3.h"
 #include "Task/task4.h"
 #include "Task/task6.h"
+#include "Task/task7.h"
 #include "stdio.h"
 #include "string.h"
 #include "ti_msp_dl_config.h"
@@ -51,7 +52,7 @@ volatile uint8_t task_flag = 0;             /* 任务选择: 0=停止, 1~4=Task 
 void uart0_send_char(char ch);              // 串口0发送单个字符
 void uart0_send_string(char *str);          // 串口0发送字符串
 
-//向左转yaw+，向右转yaw-
+// 向左转yaw+，向右转yaw-
 int main(void) {
   SYSCFG_DL_init();
   SysTick_Init();
@@ -82,6 +83,7 @@ int main(void) {
 
   // 模式选择
   task_flag = 6;
+  // Motor_SetSpeed(150, -150);
   // 模式选择
   while (1) {
     switch (task_flag) {
@@ -102,6 +104,9 @@ int main(void) {
       break;
     case 6:
       Task6_Run();
+      break;
+    case 7:
+      Task7_Run();
       break;
     default:
       /* WIT Demo 模式 */

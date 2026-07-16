@@ -49,6 +49,7 @@
                                     <listOptionValue value="${SYSCONFIG_TOOL_INCLUDE_PATH}"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/IMU660RB/Fusion"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Task"/>
+                                    <listOptionValue value="${PROJECT_ROOT}/Drivers/xunji"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/KEY"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/Motor"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/Rotate"/>
@@ -116,7 +117,7 @@
                         </toolChain>
                     </folderInfo>
                     <sourceEntries>
-                        <entry excluding="Drivers/OLED_Hardware_SPI|Drivers/IMU660RB|Drivers/LSM6DSV16X|Drivers/VL53L0X|Drivers/MPU6050|Drivers/OLED_Hardware_I2C|Drivers/BNO08X_UART_RVC|Drivers/Ultrasonic_GPIO|Drivers/Ultrasonic_Capture|Drivers/OLED_Software_SPI" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
+                        <entry excluding="doc|Drivers/OLED_Hardware_SPI|Drivers/IMU660RB|Drivers/LSM6DSV16X|Drivers/VL53L0X|Drivers/MPU6050|Drivers/OLED_Hardware_I2C|Drivers/BNO08X_UART_RVC|Drivers/Ultrasonic_GPIO|Drivers/Ultrasonic_Capture|Drivers/OLED_Software_SPI" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name=""/>
                     </sourceEntries>
                 </configuration>
             </storageModule>

@@ -14,8 +14,8 @@
 /* ===== 角度 PID 结构 ===== */
 typedef struct {
   float Kp, Ki, Kd;
-  float error, last_error, last2_error;
-  float output;
+  float error, last_error;
+  float integral;
 } AnglePID_t;
 
 /* ===== 内部函数声明 ===== */
@@ -28,7 +28,7 @@ static AnglePID_t pid;
 static Rotate_Config_t cfg;
 
 /*===========================================================================
- * 角度 PID — 增量式 + ±180° 环绕
+ * 角度 PID — 位置式 + ±180° 环绕
  *===========================================================================*/
 
 static void AnglePID_Init(AnglePID_t *pid, float Kp, float Ki, float Kd) {
@@ -37,20 +37,17 @@ static void AnglePID_Init(AnglePID_t *pid, float Kp, float Ki, float Kd) {
   pid->Kd = Kd;
   pid->error = 0.0f;
   pid->last_error = 0.0f;
-  pid->last2_error = 0.0f;
-  pid->output = 0.0f;
+  pid->integral = 0.0f;
 }
 
 static void AnglePID_Reset(AnglePID_t *pid) {
   pid->error = 0.0f;
   pid->last_error = 0.0f;
-  pid->last2_error = 0.0f;
-  pid->output = 0.0f;
+  pid->integral = 0.0f;
 }
 
 static float AnglePID_Calc(AnglePID_t *pid, float target, float current) {
-  /* 双值比较: current 有两个等效表示 (current, current±360),
-     取与 target 误差绝对值更小的那条路径 */
+  /* 双值比较: 取最短路径误差 */
   float error = target - current;
   float alt = error > 0.0f ? error - 360.0f : error + 360.0f;
   float abs_error = error > 0.0f ? error : -error;
@@ -59,20 +56,26 @@ static float AnglePID_Calc(AnglePID_t *pid, float target, float current) {
 
   pid->error = error;
 
-  /* 增量式: Δu = Kp*(e-e₁) + Ki*e + Kd*(e-2e₁+e₂) */
-  pid->output += pid->Kp * (error - pid->last_error) + pid->Ki * error +
-                 pid->Kd * (error - 2.0f * pid->last_error + pid->last2_error);
+  /* 积分: 累积误差 (抗饱和限幅) */
+  pid->integral += error;
+  if (pid->integral > (float)ROTATE_I_LIMIT)
+    pid->integral = (float)ROTATE_I_LIMIT;
+  if (pid->integral < -(float)ROTATE_I_LIMIT)
+    pid->integral = -(float)ROTATE_I_LIMIT;
 
-  pid->last2_error = pid->last_error;
+  /* 位置式: u = Kp*e + Ki*∫e + Kd*(e−e₁) */
+  float output = pid->Kp * error + pid->Ki * pid->integral +
+                 pid->Kd * (error - pid->last_error);
+
   pid->last_error = error;
 
-  /* 积分限幅 */
-  if (pid->output > (float)ROTATE_I_LIMIT)
-    pid->output = (float)ROTATE_I_LIMIT;
-  if (pid->output < -(float)ROTATE_I_LIMIT)
-    pid->output = -(float)ROTATE_I_LIMIT;
+  /* 输出限幅 */
+  if (output > (float)ROTATE_OUT_LIMIT)
+    output = (float)ROTATE_OUT_LIMIT;
+  if (output < -(float)ROTATE_OUT_LIMIT)
+    output = -(float)ROTATE_OUT_LIMIT;
 
-  return pid->output;
+  return output;
 }
 
 /*===========================================================================
@@ -118,6 +121,9 @@ bool Rotate_To(float target_yaw) {
   ok_count = 0;
 
   while (1) {
+    /* ---- LED 周期翻转 (调试用) ---- */
+    DL_GPIO_togglePins(GPIO_LED_PORT, GPIO_LED_LED1_PIN);
+
     /* 超时检测 */
     if (tick_ms - start_tick >= cfg.timeout_ms) {
       Rotate_Stop();

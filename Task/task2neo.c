@@ -17,17 +17,19 @@
 #include "ti_msp_dl_config.h"
 #include "wit.h"
 
+#include "rotate.h"
+
 #include <stdbool.h>
 #include <stdio.h>
 
 /* ===== 可调参数 ===== */
 #define BASE_SPEED 150    /* 直线基础速度 (0~999 PWM)               */
-#define ARC_SPEED 100     /* 弧线巡线速度 (0~999 PWM)               */
+#define ARC_SPEED 130     /* 弧线巡线速度 (0~999 PWM)               */
 #define TURN_SPEED 60     /* 阶段3调头速度 (0~999 PWM)              */
-#define ARC_DIFF 25       /* 弧线基础差速 (4/5检测到时右转差速)     */
+#define ARC_DIFF 28       /* 弧线基础差速 (4/5检测到时右转差速)     */
 #define RECOVERY_DIFF 10  /* 1检测到时减弱右转的差速               */
 #define RECOVERY_BOOST 20 /* 1检测到时加速增量                     */
-#define ARC_KP 0.00001f   /* 弧线 P 系数 (传感器偏移→差速修正)     */
+#define ARC_KP 0.01f   /* 弧线 P 系数 (传感器偏移→差速修正)     */
 #define ARC_KI 0.00015f   /* 弧线 I 系数                           */
 #define STEER_LIMIT 350   /* 转向修正量限幅                         */
 
@@ -35,7 +37,7 @@
 #define ANGLE_KI 0.8f /* 角度 PID 积分系数                      */
 #define ANGLE_KD 0.5f /* 角度 PID 微分系数                      */
 
-#define STATION_DEBOUNCE 4     /* 站点去抖次数                           */
+#define STATION_DEBOUNCE 2     /* 站点去抖次数                           */
 #define LOOP_DELAY_MS 10       /* 控制循环周期 (ms)                      */
 #define TASK1_TIMEOUT_S 40     /* 阶段1超时 (秒)                        */
 #define TASK2_TIMEOUT_S 60     /* 阶段2超时 (秒)                        */
@@ -359,48 +361,14 @@ void Task2neo_Run(void) {
    * 阶段3: 调头旋转 (开环/闭环由 task2neo.h 宏选择)
    *==================================================================*/
 #if defined(TURN_MODE_CLOSED_LOOP)
-  /* ----- 闭环PID调头 ----- */
+  /* ----- 闭环PID调头 (使用 rotate 模块默认参数) ----- */
   OLED_ShowString(48, 0, (uint8_t *)"ROT", 8);
 
-  AnglePID_Init(&pid_angle, TURN_ANGLE_KP, TURN_ANGLE_KI, TURN_ANGLE_KD);
-  AnglePID_SetLimit(&pid_angle, (float)(-TURN_SPEED), (float)TURN_SPEED);
+  Rotate_Init();
+  Rotate_To(TURN_TARGET_YAW);
 
-  while (1) {
-    steer = (int16_t)AnglePID_Calc(&pid_angle, TURN_TARGET_YAW, wit_data.yaw);
-
-    /* 原地旋转: left=-steer right=steer → 左转(CCW) yaw增大 */
-    left = -steer;
-    right = steer;
-
-    if (left > TURN_SPEED)
-      left = TURN_SPEED;
-    if (left < -TURN_SPEED)
-      left = -TURN_SPEED;
-    if (right > TURN_SPEED)
-      right = TURN_SPEED;
-    if (right < -TURN_SPEED)
-      right = -TURN_SPEED;
-
-    Motor_SetSpeed(left, right);
-
-    /* 到位检测 */
-    float diff = TURN_TARGET_YAW - wit_data.yaw;
-    while (diff > 180.0f)
-      diff -= 360.0f;
-    while (diff < -180.0f)
-      diff += 360.0f;
-    if (diff < TURN_TOLERANCE && diff > -TURN_TOLERANCE) {
-      Motor_Stop();
-      OLED_ShowString(48, 0, (uint8_t *)"OK", 8);
-      mspm0_delay_ms(200);
-      break;
-    }
-
-    sprintf(oled_buf, "Y:%6.1f D:%4.1f", (double)wit_data.yaw, (double)diff);
-    OLED_ShowString(0, 7, (uint8_t *)oled_buf, 8);
-
-    mspm0_delay_ms(LOOP_DELAY_MS);
-  }
+  OLED_ShowString(48, 0, (uint8_t *)"OK", 8);
+  mspm0_delay_ms(200);
 
 #elif defined(TURN_MODE_OPEN_LOOP)
   /* ----- 开环调头 ----- */
