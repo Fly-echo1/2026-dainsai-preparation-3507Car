@@ -51,6 +51,7 @@
                                     <listOptionValue value="${PROJECT_ROOT}/Task"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/KEY"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/Motor"/>
+                                    <listOptionValue value="${PROJECT_ROOT}/Drivers/Rotate"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/Grayscale"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/IMU660RB"/>
                                     <listOptionValue value="${PROJECT_ROOT}/Drivers/LSM6DSV16X"/>

@@ -196,6 +196,10 @@ void Task1_Run(void) {
 
     /* 站点检测 (testflag=0 时生效) */
     if (!testflag && IsStation()) {
+      /* 反转刹车: 两轮 PWM=-10，持续一个周期 (10ms) */
+      Motor_SetSpeed(-10, -10);
+      mspm0_delay_ms(LOOP_DELAY_MS);
+      /* 下个周期: 两轮 PWM=0，完全停止 */
       Motor_Stop();
 
       /* 蜂鸣器响 1 秒 */

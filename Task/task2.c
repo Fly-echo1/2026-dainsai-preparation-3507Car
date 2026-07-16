@@ -23,18 +23,24 @@
 #include <stdio.h>
 
 /* ===== 可调参数 ===== */
-#define BASE_SPEED 150  /* 直线基础速度 (0~999 PWM)               */
-#define ARC_SPEED 100   /* 弧线巡线速度 (0~999 PWM)               */
-#define STEER_LIMIT 350 /* 转向修正量限幅                         */
-#define OMEGA_LIMIT 100 /* 角速度 PID 输出限幅                    */
+#define BASE_SPEED 150    /* 直线基础速度 (0~999 PWM)               */
+#define ARC_SPEED 100     /* 弧线巡线速度 (0~999 PWM)               */
+#define ARC_DIFF 25       /* 弧线基础差速 (4/5检测到时右转差速)     */
+#define RECOVERY_DIFF 10  /* 1检测到时减弱右转的差速               */
+#define RECOVERY_BOOST 20 /* 1检测到时加速增量                     */
+#define ARC_KP 0.00012f   /* 弧线 P 系数 (传感器偏移→差速修正)     */
+#define ARC_KI 0.03f      /* 弧线 I 系数                           */
+#define ARC_KD 0.0f       /* 弧线 D 系数 (暂为0)                    */
+#define STEER_LIMIT 350   /* 转向修正量限幅                         */
+#define OMEGA_LIMIT 100   /* 角速度 PID 输出限幅                    */
 
 #define ANGLE_KP 9.0f /* 角度 PID 比例系数                      */
 #define ANGLE_KI 0.8f /* 角度 PID 积分系数                      */
 #define ANGLE_KD 0.5f /* 角度 PID 微分系数                      */
 
-#define OMEGA_KP 1.5f  /* 角速度 PID 比例系数                    */
-#define OMEGA_KI 0.05f /* 角速度 PID 积分系数                    */
-#define OMEGA_KD 0.3f  /* 角速度 PID 微分系数                    */
+#define OMEGA_KP 1.0f  /* 角速度 PID 比例系数                    */
+#define OMEGA_KI 0.02f /* 角速度 PID 积分系数                    */
+#define OMEGA_KD 0.0f  /* 角速度 PID 微分系数 (仅P)              */
 
 /* 站点检测: B/D 点黑线去抖 (累加不重置, 同 Task1 策略) */
 #define STATION_DEBOUNCE_BLACK 4
@@ -82,6 +88,7 @@ static int8_t find_first_black(const uint8_t *sensors);
 static AnglePID_t pid_angle;
 static OmegaPID_t pid_omega;
 static char oled_buf[32];
+static volatile uint8_t testflag = 0; /* 1=仅圆弧循迹调参, 0=正常模式 */
 
 /*===========================================================================
  * 角度 PID — 增量式 + ±180° 环绕处理 (同 Task1)
@@ -189,7 +196,7 @@ static float OmegaPID_Calc(OmegaPID_t *pid, float error) {
 
 /*===========================================================================
  * 灰度传感器辅助函数
- * 传感器索引: 0=P1(最右) ~ 7=P8(最左)
+ * 传感器1=索引0(AD0=AD1=AD2=0), 传感器8=索引7(AD0=AD1=AD2=1)
  *===========================================================================*/
 
 /** @brief 统计黑线传感器数量 */
@@ -201,7 +208,7 @@ static uint8_t count_black(const uint8_t *sensors) {
   return c;
 }
 
-/** @brief 统计右侧 4 路 (P1-P4, 索引 0-3) 黑线数量 */
+/** @brief 统计右侧 4 路 (传感器1~4, 索引 0~3) 黑线数量 */
 static uint8_t count_right_black(const uint8_t *sensors) {
   uint8_t c = 0;
   for (uint8_t i = 0; i <= 3; i++)
@@ -210,7 +217,7 @@ static uint8_t count_right_black(const uint8_t *sensors) {
   return c;
 }
 
-/** @brief 找到第一个黑线传感器索引 (从右往左)，未找到返回 -1 */
+/** @brief 找到第一个黑线传感器索引 (从传感器1到传感器8)，未找到返回 -1 */
 static int8_t find_first_black(const uint8_t *sensors) {
   for (uint8_t i = 0; i < GRAYSCALE_CHANNELS; i++)
     if (sensors[i])
@@ -220,17 +227,18 @@ static int8_t find_first_black(const uint8_t *sensors) {
 
 /*===========================================================================
  * 灰度查表: 传感器索引 → 目标角速度 (°/s)
- * 索引 0=P1(最右) → 正角速度(右转), 索引 7=P8(最左) → 负角速度(左转)
+ * 传感器1=索引0, 传感器8=索引7
+ * 正值=右转, 负值=左转
  *===========================================================================*/
 static const float SENSOR_TO_OMEGA[GRAYSCALE_CHANNELS] = {
-    20.0f,  /* 0: P1 最右 → 快速右转  */
-    10.0f,  /* 1: P2 右               */
-    5.0f,   /* 2: P3 右中             */
-    3.0f,   /* 3: P4 中右             */
-    -3.0f,  /* 4: P5 中左             */
-    -5.0f,  /* 5: P6 左中             */
-    -10.0f, /* 6: P7 左               */
-    -20.0f, /* 7: P8 最左 → 快速左转  */
+    -16.0f, /* 0: 传感器1 → 左转   (线在左边, 减轻右转) */
+    -7.0f,  /* 1: 传感器2 → 左转                        */
+    -3.0f,  /* 2: 传感器3 → 微左转                      */
+    -3.0f,  /* 3: 传感器4 → 稍左转                      */
+    3.0f,   /* 4: 传感器5 → 稍右转                      */
+    5.0f,   /* 5: 传感器6 → 微右转                      */
+    10.0f,  /* 6: 传感器7 → 右转                        */
+    20.0f,  /* 7: 传感器8 → 快速右转 (线在右边, 加强右转) */
 };
 
 /*===========================================================================
@@ -254,6 +262,102 @@ void Task2_Run(void) {
 
   OmegaPID_Init(&pid_omega, OMEGA_KP, OMEGA_KI, OMEGA_KD);
   OmegaPID_SetLimit(&pid_omega, (float)(-OMEGA_LIMIT), (float)OMEGA_LIMIT);
+
+  /* testflag=1: 仅圆弧循迹调参, 跳过AB直线, 无超时/站点检测 */
+  if (testflag) {
+    OLED_Clear();
+    OLED_ShowString(0, 0, (uint8_t *)"Task2 Tune", 8);
+    OLED_ShowString(0, 2, (uint8_t *)"Arc Only", 12);
+    mspm0_delay_ms(500);
+    OLED_Clear();
+    OLED_ShowString(0, 0, (uint8_t *)"Task2", 8);
+    OLED_ShowString(48, 0, (uint8_t *)"BC", 8);
+
+    start_tick = tick_ms;
+    offtrack_count = 0;
+    float integral = 0.0f; /* I项积分累加 */
+    bool recovery = false; /* 传感器1触发时的恢复模式 */
+    static const int8_t SENSOR_ERROR[8] = {
+        -3, -2, -1, 0, 0, +1, +2, +3}; /* 传感器1 2 3 4 5 6 7 8 */
+
+    while (1) {
+      Grayscale_Sensor_Read_All(sensors);
+      uint8_t black_cnt = count_black(sensors);
+
+      /* 脱线检测: 全白持续 → 半速直行 */
+      if (black_cnt == 0) {
+        offtrack_count++;
+        if (offtrack_count >= OFFTRACK_DEBOUNCE) {
+          int16_t slow = ARC_SPEED / 2;
+          if (slow < 20)
+            slow = 20;
+          Motor_SetSpeed(slow, slow);
+          OLED_ShowString(0, 7, (uint8_t *)"OffTrack", 8);
+          mspm0_delay_ms(LOOP_DELAY_MS);
+          continue;
+        }
+      } else {
+        offtrack_count = 0;
+      }
+
+      /* 恢复模式进出: 1触发进入, 4触发退出 */
+      if (sensors[0])
+        recovery = true;
+      if (sensors[3])
+        recovery = false;
+
+      if (recovery) {
+        /* 传感器1触发: 减轻右转 + 加速, 把线拉回中心 */
+        int16_t spd = ARC_SPEED + RECOVERY_BOOST;
+        if (spd > 999)
+          spd = 999;
+        left = spd + RECOVERY_DIFF;
+        right = spd - RECOVERY_DIFF;
+        integral = 0.0f; /* 重置积分 */
+      } else {
+        /* 正常PI控制 */
+        black_idx = find_first_black(sensors);
+        if (black_idx >= 0 && black_idx < GRAYSCALE_CHANNELS) {
+          int8_t err = SENSOR_ERROR[(uint8_t)black_idx];
+          integral += (float)err;
+          int16_t diff =
+              (int16_t)(ARC_DIFF + ARC_KP * (float)err + ARC_KI * integral);
+          left = ARC_SPEED + diff;
+          right = ARC_SPEED - diff;
+        } else {
+          integral = 0.0f;
+          left = ARC_SPEED;
+          right = ARC_SPEED;
+        }
+      }
+
+      if (left > 999)
+        left = 999;
+      if (left < 0)
+        left = 0;
+      if (right > 999)
+        right = 999;
+      if (right < 0)
+        right = 0;
+
+      Motor_SetSpeed(left, right);
+
+      /* OLED: 耗时 + 传感器状态 + L/R */
+      sprintf(oled_buf, "T:%4.1fs", (double)(tick_ms - start_tick) / 1000.0);
+      OLED_ShowString(0, 2, (uint8_t *)oled_buf, 16);
+      sprintf(oled_buf, "S:%d%d%d%d%d%d%d%d L%dR%d", sensors[0], sensors[1],
+              sensors[2], sensors[3], sensors[4], sensors[5], sensors[6],
+              sensors[7], left, right);
+      OLED_ShowString(0, 6, (uint8_t *)oled_buf, 8);
+      if (black_idx >= 0) {
+        sprintf(oled_buf, "%s e:%d I:%.0f", recovery ? "R" : "N",
+                SENSOR_ERROR[(uint8_t)black_idx], integral);
+        OLED_ShowString(0, 7, (uint8_t *)oled_buf, 8);
+      }
+
+      mspm0_delay_ms(LOOP_DELAY_MS);
+    }
+  }
 
   /* OLED 提示 */
   OLED_Clear();
@@ -285,6 +389,7 @@ void Task2_Run(void) {
     flag = 1;
     station_count = 0;
     bool b_confirmed = false; /* B站消抖已确认, 等待摆正 */
+    uint32_t beep_start = 0;  /* 蜂鸣开始时刻 */
     AnglePID_Reset(&pid_angle);
     target_yaw = start_yaw;
 
@@ -306,6 +411,12 @@ void Task2_Run(void) {
 
       Grayscale_Sensor_Read_All(sensors);
 
+      /* 蜂鸣器非阻塞关闭 (每循环检查, 不卡控制) */
+      if (beep_start && (tick_ms - beep_start) >= 300) {
+        DL_GPIO_clearPins(GPIO_BEEP_PORT, GPIO_BEEP_PIN_BEEP_PIN);
+        beep_start = 0;
+      }
+
       if (!b_confirmed) {
         /* 阶段1: 任一路黑线 → B 站消抖, 蜂鸣后继续直行 */
         if (count_black(sensors) > 0) {
@@ -313,24 +424,25 @@ void Task2_Run(void) {
           if (station_count >= STATION_DEBOUNCE_BLACK) {
             station_count = 0;
             b_confirmed = true;
-            /* 蜂鸣器立刻响 */
+            /* 蜂鸣器非阻塞: 记录时刻, 设GPIO后继续循环 */
+            beep_start = tick_ms;
             DL_GPIO_setPins(GPIO_BEEP_PORT, GPIO_BEEP_PIN_BEEP_PIN);
-            mspm0_delay_ms(300);
-            DL_GPIO_clearPins(GPIO_BEEP_PORT, GPIO_BEEP_PIN_BEEP_PIN);
             OLED_ShowString(48, 0, (uint8_t *)"B!", 8);
-            /* 不停车, 继续直行等 P4 检测到黑线 */
+            /* 不停车, 继续直行等传感器4~8检测到黑线 */
           }
         }
         /* 不重置: 同 Task1 策略 */
       } else {
-        /* 阶段2: B已确认, 等 P4(索引3,中右)检测到黑线 → 切换弧线 */
-        if (sensors[3] != 0) {
+        /* 阶段2: B已确认, 等传感器4~8(索引3~7)检测到黑线 → 切换弧线 */
+        if (sensors[3] || sensors[4] || sensors[5] || sensors[6] ||
+            sensors[7]) {
           station_count++;
           if (station_count >= STATION_DEBOUNCE_BLACK) {
+            DL_GPIO_clearPins(GPIO_BEEP_PORT, GPIO_BEEP_PIN_BEEP_PIN);
             break; /* 车已摆正, 进入 BC 弧线段 */
           }
         }
-        /* 不重置: 累加到 P4 达标 */
+        /* 不重置: 累加到 4~8 达标 */
       }
 
       /* 角度 PID */
@@ -363,14 +475,16 @@ void Task2_Run(void) {
 
   /*==================================================================
    * flag=2: BC 弧线 → C 站
-   *   策略: 灰度查表 → 目标角速度 → 角速度 PID 差速巡线
+   *   策略: PI+恢复模式 差速巡线
    *   站点: 全部 8 路白线 (全白) → C 站
    *==================================================================*/
   {
     flag = 2;
     station_count = 0;
     offtrack_count = 0;
-    OmegaPID_Reset(&pid_omega);
+    float integral = 0.0f;
+    bool recovery = false;
+    static const int8_t SENSOR_ERROR[8] = {-3, -2, -1, 0, 0, +1, +2, +3};
 
     OLED_ShowString(48, 0, (uint8_t *)"BC", 8);
 
@@ -406,46 +520,44 @@ void Task2_Run(void) {
           break;
         }
       } else {
-        station_count = 0; /* 有黑线则重置全白计数 */
+        station_count = 0;
       }
 
-      /* 脱线检测: 全白持续 N 次 → 减速继续 */
+      /* 丢线计数 */
       if (black_cnt == 0) {
         offtrack_count++;
-        if (offtrack_count >= OFFTRACK_DEBOUNCE) {
-          /* 脱线: 半速继续 */
-          int16_t slow = ARC_SPEED / 2;
-          if (slow < 20)
-            slow = 20;
-          Motor_SetSpeed(slow, slow);
-
-          /* OLED */
-          sprintf(oled_buf, "T:%4.1fs",
-                  (double)(tick_ms - start_tick) / 1000.0);
-          OLED_ShowString(0, 2, (uint8_t *)oled_buf, 16);
-          OLED_ShowString(0, 7, (uint8_t *)"OffTrack", 8);
-          mspm0_delay_ms(LOOP_DELAY_MS);
-          continue;
-        }
       } else {
         offtrack_count = 0;
       }
 
-      /* 灰度查表: 找到第一个黑线 */
-      black_idx = find_first_black(sensors);
-      if (black_idx >= 0 && black_idx < GRAYSCALE_CHANNELS) {
-        target_omega = SENSOR_TO_OMEGA[(uint8_t)black_idx];
+      /* 恢复模式进出: 1触发进入, 4触发退出 */
+      if (sensors[0])
+        recovery = true;
+      if (sensors[3])
+        recovery = false;
+
+      if (recovery) {
+        int16_t spd = ARC_SPEED + RECOVERY_BOOST;
+        if (spd > 999)
+          spd = 999;
+        left = spd + RECOVERY_DIFF;
+        right = spd - RECOVERY_DIFF;
+        integral = 0.0f;
       } else {
-        target_omega = 0.0f;
+        black_idx = find_first_black(sensors);
+        if (black_idx >= 0 && black_idx < GRAYSCALE_CHANNELS) {
+          int8_t err = SENSOR_ERROR[(uint8_t)black_idx];
+          integral += (float)err;
+          int16_t diff =
+              (int16_t)(ARC_DIFF + ARC_KP * (float)err + ARC_KI * integral);
+          left = ARC_SPEED + diff;
+          right = ARC_SPEED - diff;
+        } else {
+          integral = 0.0f;
+          left = ARC_SPEED;
+          right = ARC_SPEED;
+        }
       }
-
-      /* 角速度 PID */
-      float current_gz = (float)wit_data.gz;
-      omega_out = (int16_t)OmegaPID_Calc(&pid_omega, target_omega - current_gz);
-
-      /* 差速输出: 左轮 +omega(右转加速), 右轮 -omega */
-      left = ARC_SPEED + omega_out;
-      right = ARC_SPEED - omega_out;
 
       if (left > 999)
         left = 999;
@@ -458,10 +570,9 @@ void Task2_Run(void) {
 
       Motor_SetSpeed(left, right);
 
-      /* OLED: 耗时 + gz + omega_out */
       sprintf(oled_buf, "T:%4.1fs", (double)(tick_ms - start_tick) / 1000.0);
       OLED_ShowString(0, 2, (uint8_t *)oled_buf, 16);
-      sprintf(oled_buf, "gz:%4.0f O:%d", (double)current_gz, omega_out);
+      sprintf(oled_buf, "%s L%dR%d", recovery ? "R" : "N", left, right);
       OLED_ShowString(0, 7, (uint8_t *)oled_buf, 8);
 
       mspm0_delay_ms(LOOP_DELAY_MS);
@@ -545,14 +656,16 @@ void Task2_Run(void) {
 
   /*==================================================================
    * flag=4: DA 弧线 → A 站
-   *   策略: 灰度查表 → 目标角速度 → 角速度 PID 差速巡线
+   *   策略: PI+恢复模式 差速巡线
    *   站点: 全部 8 路白线 (全白) → A 站 → 停车
    *==================================================================*/
   {
     flag = 4;
     station_count = 0;
     offtrack_count = 0;
-    OmegaPID_Reset(&pid_omega);
+    float integral = 0.0f;
+    bool recovery = false;
+    static const int8_t SENSOR_ERROR[8] = {-3, -2, -1, 0, 0, +1, +2, +3};
 
     OLED_ShowString(48, 0, (uint8_t *)"DA", 8);
 
@@ -601,41 +714,41 @@ void Task2_Run(void) {
         station_count = 0;
       }
 
-      /* 脱线检测 */
+      /* 丢线计数 */
       if (black_cnt == 0) {
         offtrack_count++;
-        if (offtrack_count >= OFFTRACK_DEBOUNCE) {
-          int16_t slow = ARC_SPEED / 2;
-          if (slow < 20)
-            slow = 20;
-          Motor_SetSpeed(slow, slow);
-
-          sprintf(oled_buf, "T:%4.1fs",
-                  (double)(tick_ms - start_tick) / 1000.0);
-          OLED_ShowString(0, 2, (uint8_t *)oled_buf, 16);
-          OLED_ShowString(0, 7, (uint8_t *)"OffTrack", 8);
-          mspm0_delay_ms(LOOP_DELAY_MS);
-          continue;
-        }
       } else {
         offtrack_count = 0;
       }
 
-      /* 灰度查表 */
-      black_idx = find_first_black(sensors);
-      if (black_idx >= 0 && black_idx < GRAYSCALE_CHANNELS) {
-        target_omega = SENSOR_TO_OMEGA[(uint8_t)black_idx];
+      /* 恢复模式进出: 1触发进入, 4触发退出 */
+      if (sensors[0])
+        recovery = true;
+      if (sensors[3])
+        recovery = false;
+
+      if (recovery) {
+        int16_t spd = ARC_SPEED + RECOVERY_BOOST;
+        if (spd > 999)
+          spd = 999;
+        left = spd + RECOVERY_DIFF;
+        right = spd - RECOVERY_DIFF;
+        integral = 0.0f;
       } else {
-        target_omega = 0.0f;
+        black_idx = find_first_black(sensors);
+        if (black_idx >= 0 && black_idx < GRAYSCALE_CHANNELS) {
+          int8_t err = SENSOR_ERROR[(uint8_t)black_idx];
+          integral += (float)err;
+          int16_t diff =
+              (int16_t)(ARC_DIFF + ARC_KP * (float)err + ARC_KI * integral);
+          left = ARC_SPEED + diff;
+          right = ARC_SPEED - diff;
+        } else {
+          integral = 0.0f;
+          left = ARC_SPEED;
+          right = ARC_SPEED;
+        }
       }
-
-      /* 角速度 PID */
-      float current_gz = (float)wit_data.gz;
-      omega_out = (int16_t)OmegaPID_Calc(&pid_omega, target_omega - current_gz);
-
-      /* 差速输出 */
-      left = ARC_SPEED + omega_out;
-      right = ARC_SPEED - omega_out;
 
       if (left > 999)
         left = 999;
@@ -648,10 +761,9 @@ void Task2_Run(void) {
 
       Motor_SetSpeed(left, right);
 
-      /* OLED */
       sprintf(oled_buf, "T:%4.1fs", (double)(tick_ms - start_tick) / 1000.0);
       OLED_ShowString(0, 2, (uint8_t *)oled_buf, 16);
-      sprintf(oled_buf, "gz:%4.0f O:%d", (double)current_gz, omega_out);
+      sprintf(oled_buf, "%s L%dR%d", recovery ? "R" : "N", left, right);
       OLED_ShowString(0, 7, (uint8_t *)oled_buf, 8);
 
       mspm0_delay_ms(LOOP_DELAY_MS);

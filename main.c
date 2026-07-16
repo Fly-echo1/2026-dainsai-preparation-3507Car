@@ -35,8 +35,10 @@
 #include "Motor.h"
 #include "Task/task1.h"
 #include "Task/task2.h"
+#include "Task/task2neo.h"
 #include "Task/task3.h"
 #include "Task/task4.h"
+#include "Task/task6.h"
 #include "stdio.h"
 #include "string.h"
 #include "ti_msp_dl_config.h"
@@ -49,6 +51,7 @@ volatile uint8_t task_flag = 0;             /* 任务选择: 0=停止, 1~4=Task 
 void uart0_send_char(char ch);              // 串口0发送单个字符
 void uart0_send_string(char *str);          // 串口0发送字符串
 
+//向左转yaw+，向右转yaw-
 int main(void) {
   SYSCFG_DL_init();
   SysTick_Init();
@@ -76,11 +79,10 @@ int main(void) {
 
   OLED_ShowString(16 * 6, 3, (uint8_t *)"Accel", 8);
   OLED_ShowString(17 * 6, 4, (uint8_t *)"Gyro", 8);
-  
-  //模式选择
-  task_flag = 2;
-  //模式选择
 
+  // 模式选择
+  task_flag = 6;
+  // 模式选择
   while (1) {
     switch (task_flag) {
     case 1:
@@ -94,6 +96,12 @@ int main(void) {
       break;
     case 4:
       Task4_Run();
+      break;
+    case 5:
+      Task2neo_Run();
+      break;
+    case 6:
+      Task6_Run();
       break;
     default:
       /* WIT Demo 模式 */
